@@ -1,7 +1,7 @@
 """Rosenbluth algorithm implementation for polymer MCMC simulation."""
 
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from .polymer import PolymerChain
 
 

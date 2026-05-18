@@ -4,8 +4,8 @@ setup(
     name="mcmc-polymer",
     version="0.1.0",
     description="MCMC simulation of polymer configurations using Rosenbluth algorithm",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="Steven Siegl",
+    author_email="steven.siegl27@gmail.com",
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[

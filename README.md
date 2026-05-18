@@ -4,7 +4,7 @@ Monte Carlo Markov Chain (MCMC) simulation of large polymer configurations using
 
 ## Project Overview
 
-This project implements the Rosenbluth algorithm for efficient sampling of polymer configurations in high-dimensional spaces. The algorithm is particularly useful for simulating large polymer systems where standard Monte Carlo methods become inefficient due to steric exclusions and configurational constraints.
+This project implements the Rosenbluth algorithm for efficient sampling of polymer configurations in 3-dimensional spaces. The algorithm is particularly useful for simulating large polymer systems where standard Monte Carlo methods become inefficient due to steric exclusions and configurational constraints.
 
 ## Requirements
 
@@ -65,4 +65,4 @@ MIT
 
 ## Author
 
-[Your Name]
+Steven Siegl

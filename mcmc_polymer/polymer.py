@@ -35,14 +35,17 @@ class PolymerChain:
     
     def check_overlap(self, monomer_idx: int) -> bool:
         """
-        Check if monomer at monomer_idx overlaps with any other monomer.
+        Check if monomer at monomer_idx overlaps with any non-bonded monomer.
+        
+        Adjacent bonded monomers are allowed to be at the bond length, so
+        overlap checks exclude the immediately previous monomer.
         
         Returns
         -------
         bool
             True if overlap detected, False otherwise
         """
-        for i in range(monomer_idx):
+        for i in range(monomer_idx - 1):
             distance = self.get_distance(i, monomer_idx)
             if distance < 2 * self.excluded_volume_radius:
                 return True
