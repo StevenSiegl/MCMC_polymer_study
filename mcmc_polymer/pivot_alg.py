@@ -2,7 +2,7 @@
 
 import itertools
 import numpy as np
-from typing import List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 
 def _build_cubic_symmetries() -> np.ndarray:
@@ -35,25 +35,45 @@ class PivotAlgorithm:
 
     At each step a random monomer is chosen as the pivot point.  The chain
     segment beyond the pivot is transformed by a random cubic-group symmetry
-    operation.  The move is accepted via a Metropolis criterion based on the
-    self-avoidance weight:  P_accept = min(1, w_new / w_old).
+    operation.  The move is accepted via a Metropolis criterion:
 
-    For a hard-core SAW the weight is 1 (self-avoiding) or 0 (overlaps), so
-    the criterion reduces to a simple accept/reject on self-avoidance.
+        P_accept = min(1, w_new / w_old)
+
+    where the total weight is:
+
+        w(chain) = w_SAW(chain) * exp(-beta_pot * U_total(chain))
+        U_total  = sum(U(chain) for U in potentials)
+
+    Each callable in *potentials* receives the full (n_monomers, 3) chain
+    array and returns a scalar energy — this covers any interaction type:
+    monomer–monomer, monomer–wall, external field, confinement, etc.
 
     Parameters
     ----------
     n_steps : int
         Number of pivot moves to attempt per call to `run`.
     beta : float
-        Inverse temperature used in the soft-core weight
-        w = exp(-beta * n_overlaps).  Use a very large value to approximate
-        the hard-core limit.
+        Inverse temperature for the self-avoidance soft-core weight
+        w_SAW = exp(-beta * n_overlaps).  Use np.inf for the hard-core limit.
+    potentials : list of callable, optional
+        Each entry is ``U(chain: ndarray) -> float``.  The energies are summed
+        to give the total interaction energy.  Pass an empty list (default) to
+        run a pure SAW with no additional interactions.
+    beta_pot : float
+        Inverse temperature (1 / k_B T) applied to *all* potentials.
     """
 
-    def __init__(self, n_steps: int = 100, beta: float = np.inf):
-        self.n_steps = n_steps
-        self.beta    = beta
+    def __init__(
+        self,
+        n_steps: int = 100,
+        beta: float = np.inf,
+        potentials: Optional[List[Callable[[np.ndarray], float]]] = None,
+        beta_pot: float = 1.0,
+    ):
+        self.n_steps   = n_steps
+        self.beta      = beta
+        self.potentials = potentials if potentials is not None else []
+        self.beta_pot  = beta_pot
 
     # ── public interface ──────────────────────────────────────────────────────
 
@@ -154,10 +174,9 @@ class PivotAlgorithm:
 
     def _compute_weight(self, chain: np.ndarray) -> float:
         """
-        Compute the self-avoidance weight of *chain*.
+        Compute the total Boltzmann weight of *chain*.
 
-        For beta=inf (hard-core SAW): weight = 1 if self-avoiding, else 0.
-        For finite beta (soft-core):  weight = exp(-beta * n_overlaps).
+        w = w_SAW * exp(-beta_pot * sum(U(chain) for U in self.potentials))
 
         Parameters
         ----------
@@ -167,11 +186,17 @@ class PivotAlgorithm:
         -------
         float
         """
-        # TODO: placeholder — extend with additional energy terms if needed
         n_overlaps = self._count_overlaps(chain)
         if np.isinf(self.beta):
-            return 0.0 if n_overlaps > 0 else 1.0
-        return float(np.exp(-self.beta * n_overlaps))
+            w_saw = 0.0 if n_overlaps > 0 else 1.0
+        else:
+            w_saw = float(np.exp(-self.beta * n_overlaps))
+
+        if w_saw == 0.0 or not self.potentials:
+            return w_saw
+
+        u_total = sum(float(U(chain)) for U in self.potentials)
+        return w_saw * float(np.exp(-self.beta_pot * u_total))
 
     def _count_overlaps(self, chain: np.ndarray) -> int:
         """
