@@ -19,22 +19,61 @@ class LatticeRosenbluthMCMC:
     Rosenbluth chain-growth sampler on a simple cubic lattice.
 
     At each step the six nearest-neighbor sites are inspected; occupied sites
-    are excluded (self-avoiding constraint).  The Rosenbluth weight contribution
+    and wall-excluded sites are rejected.  The Rosenbluth weight contribution
     for step i is  k_i / 6, where k_i is the number of free neighbors.
     The overall chain weight is the product of these contributions.
+
+    Walls are impenetrable planes that the chain cannot cross or touch.
+    Each wall is a tuple ``(axis, coord, side)`` where:
+
+        axis  : int   — lattice axis perpendicular to the wall (0=x, 1=y, 2=z)
+        coord : int   — wall position along that axis
+        side  : str   — which side (including the wall itself) is excluded:
+                        '<'  →  sites with position[axis] <= coord are blocked
+                             (wall at coord, chain must stay strictly above)
+                        '>'  →  sites with position[axis] >= coord are blocked
+                             (wall at coord, chain must stay strictly below)
+
+    Example — slit geometry between z=0 and z=10::
+
+        walls = [(2, 0, '<'), (2, 10, '>')]
+        sampler = LatticeRosenbluthMCMC(n_monomers=17, walls=walls)
+        # chain lives in z = 1 … 9
     """
 
-    def __init__(self, n_monomers: int, bond_length: float = 1.0,
-                 random_seed: Optional[int] = None):
-        self.n_monomers = n_monomers
+    def __init__(
+        self,
+        n_monomers: int,
+        bond_length: float = 1.0,
+        walls: Optional[List[Tuple]] = None,
+        random_seed: Optional[int] = None,
+    ):
+        self.n_monomers  = n_monomers
         self.bond_length = bond_length
+        self.walls       = walls if walls is not None else []
         if random_seed is not None:
             np.random.seed(random_seed)
+
+    # ── wall check ────────────────────────────────────────────────────────────
+
+    def _is_wall_excluded(self, site: np.ndarray) -> bool:
+        """Return True if *site* is inside or on any wall."""
+        coord = site.astype(int)
+        for axis, wall_coord, side in self.walls:
+            if side == '<' and coord[axis] <= wall_coord:
+                return True
+            if side == '>' and coord[axis] >= wall_coord:
+                return True
+        return False
+
+    # ── chain growth ──────────────────────────────────────────────────────────
 
     def grow_chain(self, start: Optional[np.ndarray] = None
                    ) -> Tuple[np.ndarray, float]:
         """
         Grow one self-avoiding walk from *start* (default origin).
+
+        Neighbors that are already occupied or blocked by a wall are excluded.
 
         Returns
         -------
@@ -51,7 +90,11 @@ class LatticeRosenbluthMCMC:
 
         for i in range(1, self.n_monomers):
             neighbors = positions[i - 1] + self.bond_length * _DIRECTIONS
-            free = [n for n in neighbors if tuple(n.astype(int)) not in occupied]
+            free = [
+                n for n in neighbors
+                if tuple(n.astype(int)) not in occupied
+                and not self._is_wall_excluded(n)
+            ]
 
             if not free:
                 return positions, 0.0

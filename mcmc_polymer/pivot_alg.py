@@ -70,10 +70,11 @@ class PivotAlgorithm:
         potentials: Optional[List[Callable[[np.ndarray], float]]] = None,
         beta_pot: float = 1.0,
     ):
-        self.n_steps   = n_steps
-        self.beta      = beta
-        self.potentials = potentials if potentials is not None else []
-        self.beta_pot  = beta_pot
+        self.n_steps          = n_steps
+        self.beta             = beta
+        self.potentials       = potentials if potentials is not None else []
+        self.beta_pot         = beta_pot
+        self.acceptance_rate  = None   # updated after every call to run()
 
     # ── public interface ──────────────────────────────────────────────────────
 
@@ -102,7 +103,6 @@ class PivotAlgorithm:
             pivot_idx, operation = self._select_pivot_and_operation(current)
             candidate = self._apply_pivot(current, pivot_idx, operation)
             w_candidate = self._compute_weight(candidate)
-
             # Metropolis acceptance: min(1, w_new / w_old)
             if w_current == 0 or (w_candidate / w_current) >= np.random.rand():
                 current   = candidate
@@ -111,6 +111,7 @@ class PivotAlgorithm:
 
             trajectory.append(current.copy())
 
+        self.acceptance_rate = n_accepted / self.n_steps
         return current, trajectory
 
     # ── step sub-functions (placeholders) ────────────────────────────────────
@@ -190,8 +191,7 @@ class PivotAlgorithm:
         if np.isinf(self.beta):
             w_saw = 0.0 if n_overlaps > 0 else 1.0
         else:
-            w_saw = float(np.exp(-self.beta * n_overlaps))
-
+            w_saw = float(np.exp(-self.beta * n_overlaps)) 
         if w_saw == 0.0 or not self.potentials:
             return w_saw
 
