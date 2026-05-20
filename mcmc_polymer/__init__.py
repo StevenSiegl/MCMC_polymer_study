@@ -4,7 +4,8 @@ __version__ = "0.1.0"
 
 from .rosenbluth import RosenbluthMCMC
 from .polymer import PolymerChain
-from .lattice_rosenbluth import LatticeRosenbluthMCMC
+from .lattice_rosenbluth import LatticeRosenbluthMCMC, MultiChainRosenbluthMCMC
 from .pivot_alg import PivotAlgorithm
 
-__all__ = ["RosenbluthMCMC", "PolymerChain", "LatticeRosenbluthMCMC", "PivotAlgorithm"]
+__all__ = ["RosenbluthMCMC", "PolymerChain", "LatticeRosenbluthMCMC",
+           "MultiChainRosenbluthMCMC", "PivotAlgorithm"]

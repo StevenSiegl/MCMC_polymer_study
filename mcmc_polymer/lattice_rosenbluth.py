@@ -125,3 +125,156 @@ class LatticeRosenbluthMCMC:
             chains.append(pos)
             weights.append(w)
         return chains, np.array(weights)
+
+
+class MultiChainRosenbluthMCMC:
+    """
+    Joint Rosenbluth chain-growth sampler for multiple self-avoiding chains.
+
+    All chains grow simultaneously in round-robin order: at monomer index i,
+    chain 0 places its i-th monomer first, then chain 1, then chain 2, etc.
+    The shared excluded-site set is updated after every placed monomer, so
+    inter-chain excluded volume is enforced throughout growth — chains cannot
+    overlap each other or any wall.
+
+    The joint Rosenbluth weight is the product of all per-step weights:
+
+        W = prod_{i, k}  free_neighbors_{i,k} / z
+
+    where free_neighbors_{i,k} is the number of unoccupied, non-wall sites
+    available to chain k at growth step i.
+
+    Parameters
+    ----------
+    n_chains : int
+        Number of chains to grow simultaneously.
+    n_monomers : int or list of int
+        Number of monomers per chain.  Pass a single int to give all chains
+        the same length, or a list of length *n_chains* to set each chain's
+        length individually.
+    bond_length : float
+        Lattice step size (default 1.0).
+    walls : list of (axis, coord, side) tuples, optional
+        Hard walls shared by all chains.  Same convention as
+        LatticeRosenbluthMCMC: side='<' excludes coord and below,
+        side='>' excludes coord and above.
+    random_seed : int, optional
+    """
+
+    def __init__(
+        self,
+        n_chains: int,
+        n_monomers,          # int or list[int]
+        bond_length: float = 1.0,
+        walls: Optional[List[Tuple]] = None,
+        random_seed: Optional[int] = None,
+    ):
+        if n_chains < 1:
+            raise ValueError("n_chains must be >= 1")
+
+        # normalise n_monomers to a per-chain list
+        if isinstance(n_monomers, int):
+            chain_lengths = [n_monomers] * n_chains
+        else:
+            chain_lengths = list(n_monomers)
+            if len(chain_lengths) != n_chains:
+                raise ValueError(
+                    f"n_monomers list length ({len(chain_lengths)}) "
+                    f"must match n_chains ({n_chains})"
+                )
+
+        self.n_chains      = n_chains
+        self.chain_lengths = chain_lengths   # list of per-chain monomer counts
+        self.bond_length   = bond_length
+        self.walls         = walls if walls is not None else []
+        if random_seed is not None:
+            np.random.seed(random_seed)
+
+    def _is_wall_excluded(self, site: np.ndarray) -> bool:
+        coord = site.astype(int)
+        for axis, wall_coord, side in self.walls:
+            if side == '<' and coord[axis] <= wall_coord:
+                return True
+            if side == '>' and coord[axis] >= wall_coord:
+                return True
+        return False
+
+    def grow_chains(
+        self,
+        starts: List[np.ndarray],
+    ) -> Tuple[List[np.ndarray], float]:
+        """
+        Grow *n_chains* self-avoiding walks jointly from *starts*.
+
+        Chains grow in round-robin order at each monomer step, sharing one
+        excluded-site set.  A dead-end in any chain returns weight 0.
+
+        Parameters
+        ----------
+        starts : list of ndarray, each shape (3,)
+            Starting lattice position for each chain.  Must be distinct.
+
+        Returns
+        -------
+        chains : list of n_chains arrays; chain k has shape (chain_lengths[k], 3)
+        weight : float — joint Rosenbluth weight; 0.0 on any dead-end
+        """
+        if len(starts) != self.n_chains:
+            raise ValueError(f"Expected {self.n_chains} starts, got {len(starts)}")
+
+        chains   = [np.zeros((self.chain_lengths[k], 3)) for k in range(self.n_chains)]
+        occupied: set = set()
+        for k, start in enumerate(starts):
+            chains[k][0] = start
+            occupied.add(tuple(start.astype(int)))
+
+        weight   = 1.0
+        max_len  = max(self.chain_lengths)
+
+        for i in range(1, max_len):
+            for k in range(self.n_chains):
+                if i >= self.chain_lengths[k]:
+                    continue   # this chain is already fully grown
+
+                neighbors = chains[k][i - 1] + self.bond_length * _DIRECTIONS
+                free = [
+                    n for n in neighbors
+                    if tuple(n.astype(int)) not in occupied
+                    and not self._is_wall_excluded(n)
+                ]
+
+                if not free:
+                    return chains, 0.0
+
+                weight *= len(free) / (_Z if i == 1 else _Z1)
+                chosen = free[np.random.randint(len(free))]
+                chains[k][i] = chosen
+                occupied.add(tuple(chosen.astype(int)))
+
+        return chains, weight
+
+    def sample(
+        self,
+        n_samples: int,
+        starts: List[np.ndarray],
+    ) -> Tuple[List[List[np.ndarray]], np.ndarray]:
+        """
+        Draw *n_samples* joint Rosenbluth-weighted multi-chain configurations.
+
+        Parameters
+        ----------
+        n_samples : int
+        starts : list of ndarray, each shape (3,)
+
+        Returns
+        -------
+        configs : list of n_samples entries; each entry is a list of
+                  n_chains arrays of shape (n_monomers, 3)
+        weights : ndarray of shape (n_samples,)
+        """
+        configs, weights = [], []
+        for _ in range(n_samples):
+            chains, w = self.grow_chains(starts)
+            configs.append(chains)
+            weights.append(w)
+        return configs, np.array(weights)

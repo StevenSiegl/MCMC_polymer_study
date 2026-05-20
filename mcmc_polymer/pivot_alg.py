@@ -69,18 +69,41 @@ class PivotAlgorithm:
         beta: float = np.inf,
         potentials: Optional[List[Callable[[np.ndarray], float]]] = None,
         beta_pot: float = 1.0,
+        count_mode: str = 'attempts',
+        max_attempts: int = 100_000,
     ):
+        """
+        Parameters
+        ----------
+        count_mode : {'attempts', 'accepted'}
+            'attempts' (default) — run exactly *n_steps* pivot attempts,
+            accepted or not.
+            'accepted' — keep attempting until *n_steps* moves are accepted.
+            Use *max_attempts* to cap the loop in case of very low acceptance.
+        max_attempts : int
+            Only used when count_mode='accepted'.  Hard upper limit on the
+            total number of attempts to avoid infinite loops.
+        """
+        if count_mode not in ('attempts', 'accepted'):
+            raise ValueError("count_mode must be 'attempts' or 'accepted'")
         self.n_steps          = n_steps
         self.beta             = beta
         self.potentials       = potentials if potentials is not None else []
         self.beta_pot         = beta_pot
+        self.count_mode       = count_mode
+        self.max_attempts     = int(max_attempts)
         self.acceptance_rate  = None   # updated after every call to run()
 
     # ── public interface ──────────────────────────────────────────────────────
 
     def run(self, chain: np.ndarray) -> Tuple[np.ndarray, List[np.ndarray]]:
         """
-        Apply `n_steps` pivot moves starting from *chain*.
+        Apply pivot moves starting from *chain*.
+
+        Behaviour depends on *count_mode*:
+        - 'attempts' : make exactly *n_steps* attempts (original behaviour).
+        - 'accepted' : attempt until *n_steps* moves are accepted, or until
+                       *max_attempts* attempts have been made.
 
         Parameters
         ----------
@@ -98,21 +121,44 @@ class PivotAlgorithm:
         w_current  = self._compute_weight(current)
         trajectory = []
         n_accepted = 0
+        n_attempts = 0
 
-        for _ in range(self.n_steps):
-            pivot_idx, operation = self._select_pivot_and_operation(current)
-            candidate = self._apply_pivot(current, pivot_idx, operation)
-            w_candidate = self._compute_weight(candidate)
-            # Metropolis acceptance: min(1, w_new / w_old)
-            if w_current == 0 or (w_candidate / w_current) >= np.random.rand():
-                current   = candidate
-                w_current = w_candidate
-                n_accepted += 1
+        if self.count_mode == 'attempts':
+            for _ in range(self.n_steps):
+                accepted = self._attempt_step(current, w_current)
+                if accepted is not None:
+                    current, w_current = accepted
+                    n_accepted += 1
+                trajectory.append(current.copy())
+            n_attempts = self.n_steps
 
-            trajectory.append(current.copy())
+        else:  # 'accepted'
+            while n_accepted < self.n_steps and n_attempts < self.max_attempts:
+                accepted = self._attempt_step(current, w_current)
+                if accepted is not None:
+                    current, w_current = accepted
+                    n_accepted += 1
+                trajectory.append(current.copy())
+                n_attempts += 1
 
-        self.acceptance_rate = n_accepted / self.n_steps
+        self.acceptance_rate = n_accepted / n_attempts if n_attempts > 0 else 0.0
         return current, trajectory
+
+    def _attempt_step(
+        self, current: np.ndarray, w_current: float
+    ) -> Optional[Tuple[np.ndarray, float]]:
+        """
+        Propose and evaluate one pivot move.
+
+        Returns the (new_chain, new_weight) tuple if accepted, else None.
+        """
+        pivot_idx, operation = self._select_pivot_and_operation(current)
+        candidate   = self._apply_pivot(current, pivot_idx, operation)
+        w_candidate = self._compute_weight(candidate)
+
+        if w_current == 0 or (w_candidate / w_current) >= np.random.rand():
+            return candidate, w_candidate
+        return None
 
     # ── step sub-functions (placeholders) ────────────────────────────────────
 
